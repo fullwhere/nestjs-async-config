@@ -1,5 +1,5 @@
 import { DotenvExpandOptions } from 'dotenv-expand';
-import { ConfigFactory } from './config-factory.interface';
+import { AsyncConfigFactory, ConfigFactory } from './config-factory.interface';
 
 /**
  * @publicApi
@@ -84,4 +84,11 @@ export interface ConfigModuleOptions<
    * this property is set to true.
    */
   expandVariables?: boolean | DotenvExpandOptions;
+
+  /**
+   * Async environment variable factories to be loaded and merged into the configuration.
+   * This allows you to load configuration from asynchronous sources, such as remote secrets.
+   * Any existing configuration keys will be overwritten by the resolved values from these factories.
+   */
+  asyncEnvVars?: Array<AsyncConfigFactory>;
 }

@@ -6,7 +6,9 @@ import { ConfigModule } from '../../lib/config.module';
 import { ConfigService } from '../../lib/config.service';
 import databaseConfig from './database.config';
 import nestedDatabaseConfig from './nested-database.config';
-import symbolDatabaseConfig, { DATABASE_SYMBOL_TOKEN } from './symbol-database.config';
+import symbolDatabaseConfig, {
+  DATABASE_SYMBOL_TOKEN,
+} from './symbol-database.config';
 
 type Config = {
   database: ConfigType<typeof databaseConfig> & {
@@ -89,6 +91,18 @@ export class AppModule {
         ConfigModule.forRoot({
           envFilePath: join(__dirname, '.env'),
           load: [() => ({ obj: { test: 'true', test2: undefined } })],
+        }),
+      ],
+    };
+  }
+
+  static withAsyncEnvVars(): DynamicModule {
+    return {
+      module: AppModule,
+      imports: [
+        ConfigModule.forRoot({
+          envFilePath: join(__dirname, '.env'),
+          asyncEnvVars: [async () => ({ async: 'true' })],
         }),
       ],
     };
@@ -254,6 +268,10 @@ export class AppModule {
     return this.configService.get('database.host');
   }
 
+  getAsyncConfig() {
+    return this.configService.get('async');
+  }
+
   getDatabaseConfig() {
     return this.dbConfig;
   }
@@ -263,6 +281,6 @@ export class AppModule {
   }
 
   getSymbolDatabaseConfig() {
-    return this.configService.get(DATABASE_SYMBOL_TOKEN)
+    return this.configService.get(DATABASE_SYMBOL_TOKEN);
   }
 }

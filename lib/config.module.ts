@@ -14,7 +14,11 @@ import {
   VALIDATED_ENV_PROPNAME,
 } from './config.constants';
 import { ConfigService } from './config.service';
-import { ConfigFactory, ConfigModuleOptions } from './interfaces';
+import {
+  AsyncConfigFactory,
+  ConfigFactory,
+  ConfigModuleOptions,
+} from './interfaces';
 import { ConfigFactoryKeyHost } from './utils';
 import { createConfigProvider } from './utils/create-config-factory.util';
 import { getRegistrationToken } from './utils/get-registration-token.util';
@@ -35,9 +39,7 @@ import { mergeConfigObject } from './utils/merge-configs.util';
 })
 export class ConfigModule {
   /**
-   * This promise resolves when "dotenv" completes loading environment variables.
-   * When "ignoreEnvFile" is set to true, then it will resolve immediately after the
-   * "ConfigModule#forRoot" method is called.
+   * This promise resolves when environment variables finish loading.
    */
   public static get envVariablesLoaded() {
     return this._envVariablesLoaded;
@@ -48,11 +50,6 @@ export class ConfigModule {
     resolve => (ConfigModule.environmentVariablesLoadedSignal = resolve),
   );
 
-  /**
-   * Loads environment variables based on the "ignoreEnvFile" flag and "envFilePath" value.
-   * Additionally, registers custom configurations globally.
-   * @param options
-   */
   static async forRoot<ValidationOptions extends Record<string, any>>(
     options: ConfigModuleOptions<ValidationOptions> = {},
   ): Promise<DynamicModule> {
@@ -61,6 +58,7 @@ export class ConfigModule {
       : [options.envFilePath || resolve(process.cwd(), '.env')];
 
     let validatedEnvConfig: Record<string, any> | undefined = undefined;
+
     let config = options.ignoreEnvFile
       ? {}
       : this.loadEnvFile(envFilePaths, options);
@@ -72,10 +70,17 @@ export class ConfigModule {
       };
     }
 
+    const asyncEnvConfig = await this.loadAsyncEnvVars(options.asyncEnvVars);
+    if (Object.keys(asyncEnvConfig).length > 0) {
+      config = { ...config, ...asyncEnvConfig };
+    }
+
+    const overwriteProcessEnvKeys = Object.keys(asyncEnvConfig);
+
     if (options.validate) {
       const validatedConfig = options.validate(config);
       validatedEnvConfig = validatedConfig;
-      this.assignVariablesToProcess(validatedConfig);
+      this.assignVariablesToProcess(validatedConfig, overwriteProcessEnvKeys);
     } else if (options.validationSchema) {
       const validationOptions = this.getSchemaValidationOptions(options);
       const { error, value: validatedConfig } =
@@ -84,13 +89,15 @@ export class ConfigModule {
       if (error) {
         throw new Error(`Config validation error: ${error.message}`);
       }
+
       validatedEnvConfig = validatedConfig;
-      this.assignVariablesToProcess(validatedConfig);
+      this.assignVariablesToProcess(validatedConfig, overwriteProcessEnvKeys);
     } else {
-      this.assignVariablesToProcess(config);
+      this.assignVariablesToProcess(config, overwriteProcessEnvKeys);
     }
 
     const isConfigToLoad = options.load && options.load.length;
+    // eslint-disable-next-line @typescript-eslint/await-thenable
     const configFactory = await Promise.all(options.load || []);
     const providers = configFactory
       .map(factory =>
@@ -99,10 +106,12 @@ export class ConfigModule {
       .filter(item => item);
 
     const configProviderTokens = providers.map(item => item.provide);
+
     const configServiceProvider = {
       provide: ConfigService,
       useFactory: (configService: ConfigService) => {
         const untypedConfigService = configService as any;
+
         if (options.cache) {
           untypedConfigService.isCacheEnabled = true;
         }
@@ -115,6 +124,7 @@ export class ConfigModule {
       },
       inject: [CONFIGURATION_SERVICE_TOKEN, ...configProviderTokens],
     };
+
     providers.push(configServiceProvider);
 
     if (validatedEnvConfig) {
@@ -154,14 +164,11 @@ export class ConfigModule {
     };
   }
 
-  /**
-   * Registers configuration object (partial registration).
-   * @param config
-   */
   static forFeature(config: ConfigFactory): DynamicModule {
     const configProvider = createConfigProvider(
       config as ConfigFactory & ConfigFactoryKeyHost,
     );
+
     const serviceProvider = {
       provide: ConfigService,
       useFactory: (configService: ConfigService) => configService,
@@ -193,34 +200,65 @@ export class ConfigModule {
     options: ConfigModuleOptions,
   ): Record<string, any> {
     let config: ReturnType<typeof dotenv.parse> = {};
+
     for (const envFilePath of envFilePaths) {
       if (fs.existsSync(envFilePath)) {
         config = Object.assign(
           dotenv.parse(fs.readFileSync(envFilePath)),
           config,
         );
+
         if (options.expandVariables) {
           const expandOptions: DotenvExpandOptions =
             typeof options.expandVariables === 'object'
               ? options.expandVariables
               : {};
+
           config =
             expand({ ...expandOptions, parsed: config }).parsed || config;
         }
       }
     }
+
     return config;
+  }
+
+  private static async loadAsyncEnvVars(
+    asyncEnvVars: Array<AsyncConfigFactory> = [],
+  ): Promise<Record<string, any>> {
+    if (!asyncEnvVars.length) {
+      return {};
+    }
+
+    const resolvedConfigs = await Promise.all(
+      asyncEnvVars.map(factory => factory()),
+    );
+
+    return resolvedConfigs.reduce<Record<string, any>>((acc, current) => {
+      if (!isObject(current)) {
+        throw new Error(
+          'Config asyncEnvVars factory must resolve to an object',
+        );
+      }
+      return { ...acc, ...current };
+    }, {});
   }
 
   private static assignVariablesToProcess(
     config: Record<string, unknown>,
+    overwriteKeys: string[] = [],
   ): void {
-    if (!isObject(config)) {
-      return;
-    }
-    const keys = Object.keys(config).filter(key => !(key in process.env));
-    keys.forEach(key => {
+    if (!isObject(config)) return;
+
+    const overwriteKeysSet = new Set(overwriteKeys);
+
+    Object.keys(config).forEach(key => {
+      if (!overwriteKeysSet.has(key) && key in process.env) {
+        return;
+      }
+
       const value = config[key];
+
       if (typeof value === 'string') {
         process.env[key] = value;
       } else if (typeof value === 'boolean' || typeof value === 'number') {
@@ -248,9 +286,6 @@ export class ConfigModule {
       }
       return options.validationOptions;
     }
-    return {
-      abortEarly: false,
-      allowUnknown: true,
-    };
+    return { abortEarly: false, allowUnknown: true };
   }
 }
