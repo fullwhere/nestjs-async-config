@@ -1,7 +1,10 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { DotenvExpandOptions } from 'dotenv-expand';
 import { Parser } from '../types/index.js';
-import { ConfigFactory } from './config-factory.interface.js';
+import {
+  AsyncConfigFactory,
+  ConfigFactory,
+} from './config-factory.interface.js';
 
 /**
  * @publicApi
@@ -78,6 +81,15 @@ export interface ConfigModuleOptions<
    * See: https://docs.nestjs.com/techniques/configuration
    */
   load?: Array<ConfigFactory | Promise<ConfigFactory>>;
+
+  /**
+   * Async environment variable factories to be loaded and merged before
+   * configuration validation.
+   *
+   * Factories are executed in parallel. Their resolved values override
+   * matching keys from environment files and process.env.
+   */
+  asyncEnvVars?: AsyncConfigFactory[];
 
   /**
    * A boolean value indicating the use of expanded variables, or object
