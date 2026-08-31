@@ -40,9 +40,8 @@ import { validateWithStandardSchema } from './utils/validate-with-schema.util.js
 })
 export class ConfigModule {
   /**
-   * This promise resolves when parser completes loading environment variables.
-   * When "ignoreEnvFile" is set to true, then it will resolve immediately after the
-   * "ConfigModule#forRoot" method is called.
+   * This promise resolves when all environment variables finish loading,
+   * including values provided by asynchronous factories.
    */
   public static get envVariablesLoaded() {
     return this._envVariablesLoaded;
