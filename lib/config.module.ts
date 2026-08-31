@@ -13,7 +13,11 @@ import {
   VALIDATED_ENV_PROPNAME,
 } from './config.constants.js';
 import { ConfigService } from './config.service.js';
-import { ConfigFactory, ConfigModuleOptions } from './interfaces/index.js';
+import {
+  AsyncConfigFactory,
+  ConfigFactory,
+  ConfigModuleOptions,
+} from './interfaces/index.js';
 import { Parser } from './types/index.js';
 import { ConfigFactoryKeyHost, getDefaultParser } from './utils/index.js';
 import { createConfigProvider } from './utils/create-config-factory.util.js';
@@ -36,9 +40,8 @@ import { validateWithStandardSchema } from './utils/validate-with-schema.util.js
 })
 export class ConfigModule {
   /**
-   * This promise resolves when parser completes loading environment variables.
-   * When "ignoreEnvFile" is set to true, then it will resolve immediately after the
-   * "ConfigModule#forRoot" method is called.
+   * This promise resolves when all environment variables finish loading,
+   * including values provided by asynchronous factories.
    */
   public static get envVariablesLoaded() {
     return this._envVariablesLoaded;
@@ -73,10 +76,20 @@ export class ConfigModule {
         : { ...config, ...process.env };
     }
 
+    const asyncEnvConfig = await this.loadAsyncEnvVars(options.asyncEnvVars);
+    if (Object.keys(asyncEnvConfig).length > 0) {
+      config = { ...config, ...asyncEnvConfig };
+    }
+    const asyncEnvConfigKeys = Object.keys(asyncEnvConfig);
+
     if (options.validate) {
       const validatedConfig = options.validate(config);
       validatedEnvConfig = validatedConfig;
-      this.assignVariablesToProcess(validatedConfig, options.override);
+      this.assignVariablesToProcess(
+        validatedConfig,
+        options.override,
+        asyncEnvConfigKeys,
+      );
     } else if (options.validationSchema) {
       const { error, value: validatedConfig } =
         await validateWithStandardSchema(
@@ -92,9 +105,17 @@ export class ConfigModule {
       // the undeclared variables are merged back in to keep them available
       // through process.env and ConfigService.
       validatedEnvConfig = { ...config, ...validatedConfig };
-      this.assignVariablesToProcess(validatedEnvConfig, options.override);
+      this.assignVariablesToProcess(
+        validatedEnvConfig,
+        options.override,
+        asyncEnvConfigKeys,
+      );
     } else {
-      this.assignVariablesToProcess(config, options.override);
+      this.assignVariablesToProcess(
+        config,
+        options.override,
+        asyncEnvConfigKeys,
+      );
     }
 
     const isConfigToLoad = options.load && options.load.length;
@@ -218,16 +239,41 @@ export class ConfigModule {
     return config;
   }
 
+  private static async loadAsyncEnvVars(
+    asyncEnvVars: AsyncConfigFactory[] = [],
+  ): Promise<Record<string, any>> {
+    if (!asyncEnvVars.length) {
+      return {};
+    }
+
+    const resolvedConfigs = await Promise.all(
+      asyncEnvVars.map(factory => factory()),
+    );
+
+    return resolvedConfigs.reduce<Record<string, any>>((acc, current) => {
+      if (!isObject(current)) {
+        throw new Error(
+          'Config asyncEnvVars factory must resolve to an object',
+        );
+      }
+      return { ...acc, ...current };
+    }, {});
+  }
+
   private static assignVariablesToProcess(
     config: Record<string, unknown>,
     override?: boolean,
+    overwriteKeys: string[] = [],
   ): void {
     if (!isObject(config)) {
       return;
     }
-    const keys = override
-      ? Object.keys(config)
-      : Object.keys(config).filter(key => !(key in process.env));
+
+    const overwriteKeysSet = new Set(overwriteKeys);
+    const keys = Object.keys(config).filter(
+      key =>
+        override || overwriteKeysSet.has(key) || !(key in process.env),
+    );
 
     keys.forEach(key => {
       const value = config[key];

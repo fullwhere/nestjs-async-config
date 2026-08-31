@@ -28,8 +28,28 @@ Configuration module for [Nest](https://github.com/nestjs/nest) based on the [do
 ## Installation
 
 ```bash
-$ npm i --save @nestjs/config
+$ npm i --save @fullwhere/nestjs-async-config
 ```
+
+## Asynchronous environment variables
+
+Use `asyncEnvVars` to load environment variables from asynchronous sources
+such as AWS Secrets Manager before configuration validation runs:
+
+```typescript
+ConfigModule.forRoot({
+  asyncEnvVars: [
+    async () => ({
+      API_KEY: await loadApiKey(),
+    }),
+  ],
+});
+```
+
+Factories are executed in parallel. Their results are merged in declaration
+order, so later factories win when multiple factories return the same key.
+Values loaded through `asyncEnvVars` override matching values from environment
+files and `process.env`, and the merged configuration is then validated.
 
 ## Quick Start
 
