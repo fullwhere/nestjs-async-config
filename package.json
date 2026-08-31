@@ -1,6 +1,6 @@
 {
   "name": "@fullwhere/nestjs-async-config",
-  "version": "12.0.0-fullwhere.1",
+  "version": "12.0.0",
   "type": "module",
   "description": "Nest configuration module with asynchronous environment variable loading",
   "author": "Kamil Mysliwiec",
